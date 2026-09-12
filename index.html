@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flappy Bird 3D</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+    margin:0;
+    overflow:hidden;
+    font-family:Arial,sans-serif;
+    background:#7ddcff;
+    touch-action:none;
+}
+canvas{
+    display:block;
+    width:100vw;
+    height:100vh;
+}
+#top{
+    position:fixed;
+    top:12px;
+    left:0;
+    width:100%;
+    text-align:center;
+    color:white;
+    text-shadow:0 3px 5px #333;
+    pointer-events:none;
+}
+#score{
+    font-size:46px;
+    font-weight:bold;
+}
+#coins{
+    font-size:20px;
+}
+#menu{
+    position:fixed;
+    left:50%;
+    bottom:30px;
+    transform:translateX(-50%);
+    display:flex;
+    gap:10px;
+}
+button{
+    border:0;
+    border-radius:14px;
+    padding:12px 18px;
+    font-size:17px;
+    font-weight:bold;
+    box-shadow:0 4px 8px #555;
+}
+#shop{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.72);
+    color:white;
+    text-align:center;
+    padding:25px;
+}
+.card{
+    display:inline-block;
+    width:130px;
+    margin:8px;
+    padding:15px;
+    border-radius:15px;
+    background:#333;
+}
+.skin{
+    font-size:45px;
+}
+#gameover{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.4);
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    color:white;
+    text-align:center;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="top">
+    <div id="score">0</div>
+    <div id="coins">🪙 9999</div>
+</div>
+
+<div id="menu">
+    <button onclick="openShop()">🛒 Shop</button>
+    <button onclick="restart()">🔄 Chơi lại</button>
+</div>
+
+<div id="shop">
+    <h1>🛒 SHOP SKIN</h1>
+    <p id="shopCoins"></p>
+
+    <div class="card">
+        <div class="skin">🐤</div>
+        <p>Classic</p>
+        <button onclick="chooseSkin(0)">Chọn</button>
+    </div>
+
+    <div class="card">
+        <div class="skin">🦅</div>
+        <p>Đại bàng</p>
+        <button onclick="buySkin(1,500)">500 🪙</button>
+    </div>
+
+    <div class="card">
+        <div class="skin">🐉</div>
+        <p>Rồng</p>
+        <button onclick="buySkin(2,1500)">1500 🪙</button>
+    </div>
+
+    <div class="card">
+        <div class="skin">👽</div>
+        <p>Alien</p>
+        <button onclick="buySkin(3,3000)">3000 🪙</button>
+    </div>
+
+    <br><br>
+    <button onclick="closeShop()">❌ Đóng</button>
+</div>
+
+<div id="gameover">
+    <h1>💥 GAME OVER</h1>
+    <p id="final"></p>
+    <button onclick="restart()">CHƠI LẠI</button>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+let W,H;
+
+function resize(){
+    W=canvas.width=innerWidth*devicePixelRatio;
+    H=canvas.height=innerHeight*devicePixelRatio;
+    canvas.style.width=innerWidth+"px";
+    canvas.style.height=innerHeight+"px";
+}
+resize();
+addEventListener("resize",resize);
+
+/* =========================
+   SAVE DATA
+========================= */
+
+let best=Number(localStorage.getItem("fbBest"))||0;
+let coins=Number(localStorage.getItem("fbCoins"));
+
+if(isNaN(coins)) coins=9999;
+
+let skin=Number(localStorage.getItem("fbSkin"))||0;
+let owned=JSON.parse(
+    localStorage.getItem("fbOwned")||"[true,false,false,false]"
+);
+
+function save(){
+    localStorage.setItem("fbBest",best);
+    localStorage.setItem("fbCoins",coins);
+    localStorage.setItem("fbSkin",skin);
+    localStorage.setItem("fbOwned",JSON.stringify(owned));
+}
+
+/* =========================
+   GAME
+========================= */
+
+let bird;
+let pipes=[];
+let poop=[];
+let clouds=[];
+let score=0;
+let started=false;
+let dead=false;
+let spawn=0;
+let last=0;
+
+function resetGame(){
+
+    bird={
+        x:W*.23,
+        y:H*.45,
+        vy:0,
+        rot:0
+    };
+
+    pipes=[];
+    poop=[];
+    score=0;
+    spawn=0;
+    started=false;
+    dead=false;
+
+    document.getElementById("score").textContent="0";
+    document.getElementById("gameover").style.display="none";
+
+    createClouds();
+}
+
+function flap(){
+
+    if(dead)return;
+
+    started=true;
+
+    bird.vy=-H*.0008;
+    bird.rot=-.4;
+}
+
+addEventListener("pointerdown",e=>{
+
+    if(
+        e.target.tagName==="BUTTON" ||
+        e.target.closest("#shop") ||
+        e.target.closest("#menu")
+    ) return;
+
+    flap();
+});
+
+addEventListener("keydown",e=>{
+    if(e.code==="Space"){
+        e.preventDefault();
+        flap();
+    }
+});
+
+/* =========================
+   CLOUDS
+========================= */
+
+function createClouds(){
+
+    clouds=[];
+
+    for(let i=0;i<8;i++){
+
+        clouds.push({
+            x:Math.random()*W,
+            y:H*(.08+Math.random()*.4),
+            size:30+Math.random()*35,
+            speed:.015+Math.random()*.02
+        });
+    }
+}
+
+/* =========================
+   PIPES
+========================= */
+
+function addPipe(){
+
+    let gap=H*.27;
+    let top=H*.13+
+        Math.random()*(H*.64-gap);
+
+    pipes.push({
+        x:W+100,
+        top:top,
+        gap:gap,
+        passed:false
+    });
+}
+
+/* =========================
+   POOP 💩
+========================= */
+
+function dropPoop(){
+
+    poop.push({
+        x:bird.x,
+        y:bird.y+H*.045,
+        vy:H*.00025,
+        rot:Math.random()*6
+    });
+}
+
+/* =========================
+   GAME OVER
+========================= */
+
+function gameOver(){
+
+    if(dead)return;
+
+    dead=true;
+
+    if(score>best){
+        best=score;
+        save();
+    }
+
+    document.getElementById("final").innerHTML=
+        "Điểm: "+score+
+        "<br>Kỷ lục: "+best+
+        "<br>🪙 "+coins+" coin";
+
+    document.getElementById("gameover").style.display="flex";
+}
+
+/* =========================
+   UPDATE
+========================= */
+
+function update(dt){
+
+    /* mây luôn trôi */
+
+    for(let c of clouds){
+
+        c.x-=c.speed*dt;
+
+        if(c.x<-100){
+            c.x=W+100;
+            c.y=H*(.08+Math.random()*.4);
+        }
+    }
+
+    if(!started||dead)return;
+
+    bird.vy+=H*.0000024*dt;
+    bird.y+=bird.vy*dt;
+    bird.rot+=.025*dt;
+
+    /* tự thả cục mỗi lần bay */
+
+    if(Math.random()<.025){
+        dropPoop();
+    }
+
+    spawn+=dt;
+
+    if(spawn>1450){
+        addPipe();
+        spawn=0;
+    }
+
+    let speed=W*.0004*dt;
+
+    for(let p of pipes){
+
+        p.x-=speed;
+
+        if(!p.passed&&p.x+W*.13<bird.x){
+
+            p.passed=true;
+            score++;
+
+            coins+=10;
+            save();
+
+            document.getElementById("score").textContent=score;
+            document.getElementById("coins").textContent=
+                "🪙 "+coins;
+        }
+
+        let bw=W*.07;
+        let bh=H*.055;
+
+        if(
+            bird.x+bw/2>p.x &&
+            bird.x-bw/2<p.x+W*.13 &&
+            (
+                bird.y-bh/2<p.top ||
+                bird.y+bh/2>p.top+p.gap
+            )
+        ){
+            gameOver();
+        }
+    }
+
+    pipes=pipes.filter(p=>p.x>-W*.2);
+
+    /* poop physics */
+
+    for(let q of poop){
+
+        q.y+=q.vy*dt;
+        q.vy+=H*.0000008*dt;
+        q.x-=speed*.7;
+        q.rot+=.02*dt;
+    }
+
+    poop=poop.filter(q=>q.y<H*.9);
+
+    if(bird.y<0||bird.y>H*.86){
+        gameOver();
+    }
+}
+
+/* =========================
+   DRAW SKY
+========================= */
+
+function drawSky(){
+
+    let g=ctx.createLinearGradient(0,0,0,H);
+
+    g.addColorStop(0,"#38bdf8");
+    g.addColorStop(1,"#d9f7ff");
+
+    ctx.fillStyle=g;
+    ctx.fillRect(0,0,W,H);
+}
+
+/* =========================
+   DRAW CLOUD
+========================= */
+
+function drawCloud(c){
+
+    ctx.fillStyle="rgba(255,255,255,.8)";
+
+    ctx.beginPath();
+
+    ctx.arc(c.x,c.y,c.size*.6,0,Math.PI*2);
+    ctx.arc(c.x+c.size*.6,c.y+5,c.size*.8,0,Math.PI*2);
+    ctx.arc(c.x+c.size*1.3,c.y,c.size*.55,0,Math.PI*2);
+
+    ctx.fill();
+}
+
+/* =========================
+   DRAW PIPE
+========================= */
+
+function drawPipe(x,y,w,h){
+
+    let g=ctx.createLinearGradient(x,0,x+w,0);
+
+    g.addColorStop(0,"#08751d");
+    g.addColorStop(.35,"#42df52");
+    g.addColorStop(.7,"#16ad35");
+    g.addColorStop(1,"#064f15");
+
+    ctx.fillStyle="rgba(0,0,0,.2)";
+    ctx.fillRect(x+12,y+12,w,h);
+
+    ctx.fillStyle=g;
+    ctx.fillRect(x,y,w,h);
+
+    ctx.strokeStyle="#064b13";
+    ctx.lineWidth=5;
+    ctx.strokeRect(x,y,w,h);
+}
+
+/* =========================
+   DRAW BIRD
+========================= */
+
+function drawBird(){
+
+    ctx.save();
+
+    ctx.translate(bird.x,bird.y);
+    ctx.rotate(bird.rot);
+
+    let symbols=[
+        "🐤",
+        "🦅",
+        "🐉",
+        "👽"
+    ];
+
+    ctx.font=(W*.09)+"px Arial";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+
+    ctx.shadowColor="rgba(0,0,0,.4)";
+    ctx.shadowBlur=8;
+
+    ctx.fillText(symbols[skin],0,0);
+
+    ctx.restore();
+}
+
+/* =========================
+   DRAW POOP
+========================= */
+
+function drawPoop(q){
+
+    ctx.save();
+
+    ctx.translate(q.x,q.y);
+    ctx.rotate(q.rot);
+
+    ctx.font=(W*.035)+"px Arial";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+
+    ctx.fillText("💩",0,0);
+
+    ctx.restore();
+}
+
+/* =========================
+   DRAW GROUND
+========================= */
+
+function drawGround(){
+
+    let y=H*.88;
+
+    ctx.fillStyle="#63cf3d";
+    ctx.fillRect(0,y,W,H-y);
+
+    ctx.fillStyle="#3d9728";
+
+    for(let x=0;x<W;x+=40){
+        ctx.fillRect(x,y,20,8);
+    }
+
+    ctx.fillStyle="#86552a";
+    ctx.fillRect(0,y+15,W,H-y-15);
+}
+
+/* =========================
+   DRAW
+========================= */
+
+function draw(){
+
+    drawSky();
+
+    for(let c of clouds)
+        drawCloud(c);
+
+    for(let p of pipes){
+
+        drawPipe(
+            p.x,
+            0,
+            W*.13,
+            p.top
+        );
+
+        drawPipe(
+            p.x,
+            p.top+p.gap,
+            W*.13,
+            H*.88-(p.top+p.gap)
+        );
+    }
+
+    for(let q of poop)
+        drawPoop(q);
+
+    drawGround();
+    drawBird();
+
+    if(!started&&!dead){
+
+        ctx.fillStyle="rgba(0,0,0,.3)";
+        ctx.font="bold "+Math.max(20,W*.035)+"px Arial";
+        ctx.textAlign="center";
+
+        ctx.fillText(
+            "CHẠM ĐỂ BAY",
+            W/2,
+            H*.72
+        );
+    }
+}
+
+/* =========================
+   SHOP
+========================= */
+
+function openShop(){
+
+    document.getElementById("shop").style.display="block";
+
+    document.getElementById("shopCoins").textContent=
+        "🪙 Coin: "+coins;
+}
+
+function closeShop(){
+    document.getElementById("shop").style.display="none";
+}
+
+function chooseSkin(id){
+
+    if(!owned[id]){
+        alert("Bạn chưa sở hữu skin này!");
+        return;
+    }
+
+    skin=id;
+    save();
+
+    alert("Đã chọn skin!");
+
+    closeShop();
+}
+
+function buySkin(id,price){
+
+    if(owned[id]){
+
+        chooseSkin(id);
+        return;
+    }
+
+    if(coins<price){
+
+        alert("Không đủ coin 😭");
+        return;
+    }
+
+    coins-=price;
+    owned[id]=true;
+    skin=id;
+
+    save();
+
+    document.getElementById("coins").textContent=
+        "🪙 "+coins;
+
+    document.getElementById("shopCoins").textContent=
+        "🪙 Coin: "+coins;
+
+    alert("🎉 Mua skin thành công!");
+}
+
+/* =========================
+   RESTART
+========================= */
+
+function restart(){
+
+    resetGame();
+
+    document.getElementById("coins").textContent=
+        "🪙 "+coins;
+}
+
+/* =========================
+   LOOP
+========================= */
+
+function loop(t){
+
+    let dt=Math.min(t-last,35);
+    last=t;
+
+    update(dt);
+    draw();
+
+    requestAnimationFrame(loop);
+}
+
+resetGame();
+requestAnimationFrame(loop);
+</script>
+
+</body>
+</html>
